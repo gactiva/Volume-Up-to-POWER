@@ -30,21 +30,29 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Check project files
+      - name: Extract Android project ZIP
         run: |
-          echo "Repository files:"
-          ls -la
-          if [ ! -f settings.gradle.kts ] && [ ! -f settings.gradle ]; then
-            echo "ERROR: Android project files are missing."
+          ZIP_FILE="$(find . -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No project ZIP found in repository root."
             exit 1
           fi
+          echo "Extracting: $ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d extracted
+          PROJECT_FILE="$(find extracted -type f -name settings.gradle.kts -print -quit)"
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERROR: settings.gradle.kts not found inside ZIP."
+            exit 1
+          fi
+          echo "PROJECT_DIR=$(dirname "$PROJECT_FILE")" >> "$GITHUB_ENV"
 
-      - name: Build APK
-        run: gradle assembleDebug
+      - name: Build debug APK
+        run: gradle -p "$PROJECT_DIR" assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: VolumePower-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: extracted/VolumePowerApp/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 7
