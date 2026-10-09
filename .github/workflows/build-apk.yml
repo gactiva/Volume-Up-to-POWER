@@ -24,24 +24,22 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Check Android project files
+      - name: Check project files
         run: |
-          echo "Checking project files..."
+          echo "Repository files:"
           ls -la
           if [ ! -f settings.gradle.kts ] && [ ! -f settings.gradle ]; then
-            echo "ERROR: Missing settings.gradle.kts or settings.gradle at repository root."
-            echo "Upload the extracted Android project files, not only the ZIP."
+            echo "ERROR: Android project files are missing."
             exit 1
           fi
 
-      - name: Build debug APK
+      - name: Build APK
         run: gradle assembleDebug
 
       - name: Upload APK
@@ -50,4 +48,3 @@ jobs:
           name: VolumePower-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 7
