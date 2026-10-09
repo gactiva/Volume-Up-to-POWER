@@ -32,19 +32,77 @@ jobs:
 
       - name: Extract Android project ZIP
         run: |
+          set -eu
+          mkdir -p extracted
           ZIP_FILE="$(find . -maxdepth 1 -type f -name '*.zip' -print -quit)"
+
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: No project ZIP found in repository root."
             exit 1
           fi
-          echo "Extracting: $ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d extracted
-          PROJECT_FILE="$(find extracted -type f -name settings.gradle.kts -print -quit)"
+
+          echo "Extracting $ZIP_FILE"
+          unzip -oq "$ZIP_FILE" -d extracted
+
+          PROJECT_FILE="$(find extracted -type f \( -name settings.gradle.kts -o -name settings.gradle \) -print -quit)"
+
           if [ -z "$PROJECT_FILE" ]; then
-            echo "ERROR: settings.gradle.kts not found inside ZIP."
+            echo "ERROR: No Gradle settings file found inside the ZIP."
             exit 1
           fi
-          echo "PROJECT_DIR=$(dirname "$PROJECT_FILE")" >> "$GITHUB_ENV"
+
+          PROJECT_DIR="$(dirname "$PROJECT_FILE")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found at: $PROJECT_DIR"
+
+      - name: Align Java and Kotlin versions
+        run: |
+          python3 - "$PROJECT_DIR/app/build.gradle.kts" <<'PY'
+          import sys
+          from pathlib import Path
+
+          p = Path(sys.argv[1])
+          s = p.read_text()
+
+          if "compileOptions" not in s:
+              marker = "    kotlinOptions {"
+              block = (
+                  "    compileOptions {\n"
+                  "        sourceCompatibility = JavaVersion.VERSION_17\n"
+                  "        targetCompatibility = JavaVersion.VERSION_17\n"
+                  "    }\n\n"
+              )
+              if marker in s:
+                  s = s.replace(marker, block + marker, 1)
+              else:
+                  android_marker = "android {"
+                  if android_marker not in s:
+                      raise SystemExit("Could not find android block in app/build.gradle.kts")
+                  s = s.replace(
+                      android_marker,
+                      android_marker + "\n"
+                      "    compileOptions {\n"
+                      "        sourceCompatibility = JavaVersion.VERSION_17\n"
+                      "        targetCompatibility = JavaVersion.VERSION_17\n"
+                      "    }\n",
+                      1
+                  )
+
+          if "kotlinOptions {" in s:
+              start = s.index("kotlinOptions {")
+              end = s.index("}", start)
+              block = s[start:end + 1]
+              import re
+              if re.search(r'jvmTarget\s*=', block):
+                  block = re.sub(r'jvmTarget\s*=\s*"[^"]+"',
+                                 'jvmTarget = "17"', block)
+              else:
+                  block = block[:-1] + '\n        jvmTarget = "17"\n    }'
+              s = s[:start] + block + s[end + 1:]
+
+          p.write_text(s)
+          print("Updated Java/Kotlin targets in", p)
+          PY
 
       - name: Build debug APK
         run: gradle -p "$PROJECT_DIR" assembleDebug
@@ -53,6 +111,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VolumePower-debug-apk
-          path: extracted/VolumePowerApp/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
